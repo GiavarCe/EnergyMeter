@@ -35,7 +35,8 @@
 
 // TODO Insert appropriate #include <>
 #define LED2 4
-#define XBEE_SEND_SIZE          17 //Xbee send telegram size
+#define XBEE_SEND_DATA_SIZE     17 //Xbee send telegram size. Data telegram
+#define XBEE_SEND_COEFF_SIZE    31 //Xbee send telegram size. Coefficients telegram
 #define TELEGRAM_89_LENGTH      7 //Length of xbee telegram 0x89
 #define CONTROL_REG_READ_TEMP   0x2E //Control register: read temperature
 #define CONTROL_REG_READ_PRESS  0xF4 //Control register: read pressure, oss=3
