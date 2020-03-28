@@ -12,17 +12,22 @@
 #define WAIT_BEFORE_START   30
 
 #define BMP180_INIT_CMD         1 //Init command
-#define BMP180_READ_TEMP_CMD    2 //Read temperature
-#define BMP180_READ_PRESS_CMD   4 //Read pressure
-#define BMP180_READ_COEFF_CMD   8 //Read calibration coefficients
+#define BMP180_READ_T_P_CMD     2 //Read temperature and pressure
+#define BMP180_READ_COEFF_CMD   4 //Read calibration coefficients
 
-#define BMP180_IDLE             10
-#define BMP180_READ_TEMPERATURE 50
-#define BMP180_READ_PRESSURE    52
-#define BMP180_WAIT             55
-#define BMP180_READ             60
-#define BMP180_DONE             100
-#define BMP180_ERROR            254
+//***BMP180 module constants***
+#define BMP180_I2C_ADDRESS      0x77 //I2C address
+#define BMP180_ID_REGISTER      0xD0 //ID address register
+#define BMP180_CTRL_MEAS_REG    0xF4 //Measurement control register
+#define BMP180_OUT_MSB_REG      0xF6 //MSB output register (out_msb)
+//*****************************
+
+#define BMP180_IDLE_STS             10
+#define BMP180_READ_T_STS           50 //Read temperature status
+#define BMP180_READ_P_STS           52 //Read pressure status
+#define BMP180_DONE_STS             100
+#define BMP180_ERROR_STS            254
+#define BMP180_DEBUG_STS            255
 
 #define XBEE_SEND    150
 #define XBEE_RECV    160
@@ -33,6 +38,7 @@
 #include "Globals.h"
 #include <xc.h>
 #include "mcc_generated_files/mcc.h"
+#include "mcc_generated_files/drivers/i2c_simple_master.h"
 
 struct BMP180_cmd_typ{
     uint8_t     commandByte;
@@ -41,23 +47,21 @@ struct BMP180_cmd_typ{
 struct BMP180_sts_typ{
     uint8_t     status;
     uint8_t     error;
-    uint8_t     UT_TemperatureMSB;
-    uint8_t     UT_TemperatureLSB;
-    uint8_t     UT_PressureMSB;
-    uint8_t     UT_PressureLSB;
+    uint16_t    Temperature;
+    uint16_t    Pressure;
 };
 
 uint8_t g_10ms_tick;
-
+uint8_t g_BMP180_CalibrationCoefficients[22]; //Calibration coefficients
+    
 int xbeeSend(int, struct BMP180_sts_typ *);
 void BMP180(struct BMP180_cmd_typ *, struct BMP180_sts_typ *);
-
-int BMP180_WriteCommand(uint8_t);
 
 void main(void) {
     unsigned short status=INIT, i;
     int retVal, powerCounter, thickCtr;
-    uint8_t xbee_89_Telegram[TELEGRAM_89_LENGTH];
+    uint8_t xbee_89_Telegram[TELEGRAM_89_LENGTH], BMP180_id;
+ 
     unsigned char sample, change, slatch=0, RC5_os;
     struct BMP180_cmd_typ BMP180_cmd;
     struct BMP180_sts_typ BMP180_sts;
@@ -78,7 +82,7 @@ void main(void) {
     INTCONbits.GIE = 1;
     
     while(1) {
-        g_10ms_tick = g_TMR0_tick;
+        g_10ms_tick = g_TMR0_tick; //10ms interrupt from TMR0
         
         if (g_10ms_tick)
             g_TMR0_tick = 0;
@@ -90,25 +94,36 @@ void main(void) {
             case INIT:
                 thickCtr = 0;
                 powerCounter = 0;
+
+                if ( (BMP180_id = i2c_read1ByteRegister(BMP180_I2C_ADDRESS, BMP180_ID_REGISTER)) != 0x55) {
+                    status = ERROR;
+                    break;
+                    }
+
+                BMP180_cmd.commandByte = BMP180_INIT_CMD;
                 status = WAIT_BEFORE_START;
                 break;
             
             case WAIT_BEFORE_START: //Empty wait
-                if (thickCtr > 10) {
-                    BMP180_cmd.commandByte = BMP180_INIT_CMD;
+                if (thickCtr > 10) 
                     status = READ_COEFFICIENTS;
-                    } 
+                     
                 break;
                 
-            case READ_COEFFICIENTS:
-                //BMP180_cmd.commandByte = BMP180_READ_COEFF_CMD;
+            case READ_COEFFICIENTS: //Calibration coefficients
                 status = IDLE;
+                
+                /*if ( (retVal=I2C_ReadMultipleBytes(g_BMP180_CalibrationCoefficients, 22, 0xAA)) == 0)
+                    status = IDLE;
+                else
+                    status = ERROR;
+                */
                 break;
                 
             case IDLE:
                 if (thickCtr == 500) {
-                    //BMP180_cmd.commandByte = BMP180_READ_TEMP_CMD;
-                    //status = READ_TEMPERATURE;
+                    BMP180_cmd.commandByte = BMP180_READ_T_P_CMD;
+                    status = READ_TEMPERATURE;
                     break;
                 }
                 
@@ -130,10 +145,10 @@ void main(void) {
                 break;
                 
             case READ_TEMPERATURE:
-                if (BMP180_sts.status == BMP180_DONE)
+                if (BMP180_sts.status == BMP180_DONE_STS)
                     status = IDLE;
                 
-                if (BMP180_sts.status == BMP180_ERROR)
+                if (BMP180_sts.status == BMP180_ERROR_STS)
                     status = ERROR;
                 
                 break;
@@ -164,6 +179,7 @@ void main(void) {
                 break;
                 
             case DEBUG:
+                //IO_RA5_SetHigh();
                 break;
             } 
         BMP180(&BMP180_cmd, &BMP180_sts);
@@ -176,7 +192,7 @@ void main(void) {
 }
 
 void BMP180(struct BMP180_cmd_typ *BMP180_cmd, struct BMP180_sts_typ *BMP180_sts) {
-    static uint8_t wait_t, requestedCmd;
+    static uint8_t wait_t;
     uint8_t MSB, LSB;
     int8_t retVal;
     
@@ -188,211 +204,52 @@ void BMP180(struct BMP180_cmd_typ *BMP180_cmd, struct BMP180_sts_typ *BMP180_sts
     
     switch(BMP180_sts->status) {
         case INIT:
-            SSP1CON1bits.SSPEN = 1; //Enable serial port
-            //Be sure that RC3 = SCL1 & RC4 = SDA1 are configured as input!!!
-            BMP180_sts->status = IDLE;
+            BMP180_sts->status = BMP180_IDLE_STS;
             break;
             
-        case BMP180_IDLE:
-            if (BMP180_cmd->commandByte & BMP180_READ_TEMP_CMD) {
-                BMP180_cmd->commandByte &= !BMP180_READ_TEMP_CMD;
-                requestedCmd = CONTROL_REG_READ_TEMP; //0x2E = read temperature
-                BMP180_sts->status = BMP180_READ_TEMPERATURE;
-                break;
-            }
-
-            if (BMP180_cmd->commandByte & BMP180_READ_PRESS_CMD) {
-                BMP180_cmd->commandByte &= !BMP180_READ_PRESS_CMD;
-                requestedCmd = CONTROL_REG_READ_PRESS;
-                BMP180_sts->status = BMP180_READ_PRESSURE;
+        case BMP180_IDLE_STS:
+            if (BMP180_cmd->commandByte & BMP180_READ_T_P_CMD) {
+                BMP180_cmd->commandByte &= !BMP180_READ_T_P_CMD;
+                BMP180_sts->status = BMP180_READ_T_STS;
                 break;
             }
 
             break;
             
-        case BMP180_READ_TEMPERATURE:
-            if ( BMP180_WriteCommand(requestedCmd) ) {
-                BMP180_sts->error = 1;
-                BMP180_sts->status = BMP180_ERROR;
-            }
-            else {
-                wait_t = 0; //Reset timer
-                BMP180_sts->status = BMP180_WAIT;
-            }
+        case BMP180_READ_T_STS:
+            i2c_write1ByteRegister(BMP180_I2C_ADDRESS, BMP180_CTRL_MEAS_REG, 0x2E);
+            __delay_ms(5);
+            BMP180_sts->Temperature = i2c_read2ByteRegister(BMP180_I2C_ADDRESS, BMP180_OUT_MSB_REG);
+            BMP180_sts->status = BMP180_READ_P_STS;
             break;
 
-        case BMP180_READ_PRESSURE:
-            if ( BMP180_WriteCommand(requestedCmd) ) { 
-                BMP180_sts->error = 1;
-                BMP180_sts->status = BMP180_ERROR;
-            }
-            else {
-                wait_t = 0; //Reset timer
-                BMP180_sts->status = BMP180_WAIT;
-            }
+        case BMP180_READ_P_STS:
+            i2c_write1ByteRegister(BMP180_I2C_ADDRESS, BMP180_CTRL_MEAS_REG, 0xF4);
+            __delay_ms(30);
+            BMP180_sts->Pressure = i2c_read2ByteRegister(BMP180_I2C_ADDRESS, BMP180_OUT_MSB_REG);
+            BMP180_sts->status = BMP180_DONE_STS;
+            break;
+                                
+        case BMP180_DONE_STS:
+            BMP180_sts->status = BMP180_IDLE_STS;
             break;
             
-/*Only one wait state. Temperature and pressure readings have different delays.
- * Wait 40..50ms. Quite high delay, but we're reading ambient parameters...
- */
-        case BMP180_WAIT: //Wait response from module
-            if (g_10ms_tick)
-                if ( (++wait_t) >= 5)
-                    BMP180_sts->status = BMP180_READ;
-            break;
-            
-        case BMP180_READ:
-            //Start condition
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1CON2bits.SEN = 1; //Start condition
-            while(!PIR3bits.SSP1IF); //SSPIF is set every 9th clock cycle
-            
-            //Module address write command
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1BUF = MODULE_ADDRESS_WRITE; //Address + write
-            while(!PIR3bits.SSP1IF); //SSPIF is set every 9th clock cycle
-
-            if (SSP1CON2bits.ACKSTAT) { //ACK was not received
-                SSP1CON2bits.PEN = 1; //Sends stop bit
-                while(SSP1CON2bits.PEN);
-                BMP180_sts->status = BMP180_ERROR; //TODO: error code
-                break;
-                }
-            
-            //Register address
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1BUF = 0xF6; //LSB address
-            while(!PIR3bits.SSP1IF); //SSPIF is set every 9th clock cycle
-
-            if (SSP1CON2bits.ACKSTAT) { //ACK was not received
-                SSP1CON2bits.PEN = 1; //Sends stop bit
-                while(SSP1CON2bits.PEN);
-                BMP180_sts->status = BMP180_ERROR; //TODO: error code
-                break;
-                }
-            
-            //Master restarts
-            SSP1CON2bits.RSEN = 1; //Restart condition
-            while(SSP1CON2bits.RSEN);
-            
-            //Module address read
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1BUF = MODULE_ADDRESS_READ; //Address + read
-            while(!PIR3bits.SSP1IF); //SSPIF is set every 9th clock cycle
-
-            if (SSP1CON2bits.ACKSTAT) { //ACK was not received
-                SSP1CON2bits.PEN = 1; //Sends stop bit
-                while(SSP1CON2bits.PEN);
-                BMP180_sts->status = BMP180_ERROR; //TODO: error code
-                break;
-                }
-            
-            //Master receives 1 byte
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1CON2bits.RCEN = 1; //Receive enable
-            while(!PIR3bits.SSP1IF);
-            MSB = SSP1BUF;//Master reads received byte MSB
-            
-            //I2C_MasterSendACK
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1CON2bits.ACKDT = 0;
-            SSP1CON2bits.ACKEN = 1;
-            while(!PIR3bits.SSP1IF);
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-
-            //Master receives 1 byte
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1CON2bits.RCEN = 1; //Receive enable
-            while(!PIR3bits.SSP1IF);
-            LSB = SSP1BUF;//Master reads received byte LSB
-
-            //I2C_MasterSendNotACK
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1CON2bits.ACKDT = 1;
-            SSP1CON2bits.ACKEN = 1;
-            while(!PIR3bits.SSP1IF);
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-
-            //Master sends stop
-            SSP1CON2bits.PEN = 1; //Sends stop bit
-            while(SSP1CON2bits.PEN);
-            
-            BMP180_sts->status = BMP180_DONE; //TOGLIERE
-            
-            break;
-        
-        case BMP180_DONE:
-            if (requestedCmd == CONTROL_REG_READ_TEMP) {
-                BMP180_sts->UT_TemperatureMSB = MSB;
-                BMP180_sts->UT_TemperatureLSB = LSB;
-            }
-
-            if (requestedCmd == CONTROL_REG_READ_PRESS) {
-                BMP180_sts->UT_PressureMSB = MSB;
-                BMP180_sts->UT_PressureLSB = LSB;
-            }
-
-            BMP180_sts->status = BMP180_IDLE;
-            break;
-            
-        case DEBUG:
+        case BMP180_DEBUG_STS:
             ;
             break;
             
-        case BMP180_ERROR:
-            BMP180_sts->status = BMP180_IDLE;
+        case BMP180_ERROR_STS:
+            BMP180_sts->status = BMP180_IDLE_STS;
             break;
     }
     return;
-}
-
-int BMP180_WriteCommand(uint8_t command) {
-            SSP1CON2bits.SEN = 1; //Start condition
-            while(SSP1CON2bits.SEN);
-            
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1BUF = MODULE_ADDRESS_WRITE; //Address + write
-            while(!PIR3bits.SSP1IF)
-                ; //SSPIF is set every 9th clock cycle
-            
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            if (SSP1CON2bits.ACKSTAT) { //ACK was not received
-                SSP1CON2bits.PEN = 1; //Sends stop bit
-                while(SSP1CON2bits.PEN);
-                return -1;
-                }
-
-            SSP1BUF = 0xF4; //Register address
-            while(!PIR3bits.SSP1IF); //SSPIF is set every 9th clock cycle
-                
-            if (SSP1CON2bits.ACKSTAT) { //ACK was not received
-                SSP1CON2bits.PEN = 1; //Sends stop bit
-                while(SSP1CON2bits.PEN);
-                return -2;
-                }
-
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1BUF = command;
-            while(!PIR3bits.SSP1IF); //SSPIF is set every 9th clock cycle
-                
-            if (SSP1CON2bits.ACKSTAT) { //ACK was not received
-                SSP1CON2bits.PEN = 1; //Sends stop bit
-                while(SSP1CON2bits.PEN);
-                return -3;
-                }
-
-            PIR3bits.SSP1IF = 0; //Clear SSP interrupt flag
-            SSP1CON2bits.PEN = 1; //Sends stop bit
-            while(SSP1CON2bits.PEN);
-    
-    return 0;
 }
 
 int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts) {
 
     uint8_t xbeeSendMessage[XBEE_SEND_SIZE];
     int tempResult, i;
-            
+
     xbeeSendMessage[0] = 0x7E; //Start delimiter
     xbeeSendMessage[1] = 0x00; //MSB length
     xbeeSendMessage[2] = 0x0D; //LSB length
@@ -405,10 +262,10 @@ int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts) {
     xbeeSendMessage[9] = 0x00;
     xbeeSendMessage[10] = inPower & 0xFF; 
     xbeeSendMessage[11] = (inPower >> 8) & 0xFF;
-    xbeeSendMessage[12] = 0;//inBMP180_sts->UT_TemperatureLSB; //Data: temperature LSB
-    xbeeSendMessage[13] = 0;//inBMP180_sts->UT_TemperatureMSB; //Data: temperature MSB
-    xbeeSendMessage[14] = 0;//inBMP180_sts->UT_PressureLSB; //Data: pressure LSB
-    xbeeSendMessage[15] = 0;//inBMP180_sts->UT_PressureMSB; //Data: pressure MSB
+    xbeeSendMessage[12] = inBMP180_sts->Temperature & 0x00FF; //Temperaure LSB
+    xbeeSendMessage[13] = inBMP180_sts->Temperature >> 8; //Temperature MSB
+    xbeeSendMessage[14] = inBMP180_sts->Pressure & 0x00FF; //Pressure LSB;
+    xbeeSendMessage[15] = inBMP180_sts->Pressure >> 8; //Pressure MSB
     
     tempResult=0;
     for (i=3; i<= (XBEE_SEND_SIZE -2 ); i++)

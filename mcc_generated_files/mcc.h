@@ -56,6 +56,7 @@
 #include "i2c1_master.h"
 #include "tmr0.h"
 #include "eusart.h"
+#include "drivers/i2c_simple_master.h"
 
 
 
