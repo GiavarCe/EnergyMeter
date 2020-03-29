@@ -82,12 +82,14 @@ uint8_t g_BMP180_CalibrationCoefficients[22]; //Calibration coefficients
 int xbeeSend(int, struct BMP180_sts_typ *, uint8_t);
 void BMP180(struct BMP180_cmd_typ *, struct BMP180_sts_typ *);
 void timer(struct timer_typ *);
+char xbeeRecv(void);
 
 void main(void) {
     unsigned short status=INIT, i;
     int retVal, powerCounter, thickCtr;
-    uint8_t xbee_89_Telegram[TELEGRAM_89_LENGTH], BMP180_id;
- 
+    uint8_t BMP180_id;
+    char chrRetVal;
+    
     unsigned char sample, change, slatch=0, RC5_os;
     struct BMP180_cmd_typ BMP180_cmd;
     struct BMP180_sts_typ BMP180_sts;
@@ -137,13 +139,17 @@ void main(void) {
                 break;
                 
             case READ_COEFFICIENTS: //Calibration coefficients
+                IO_RA4_SetHigh(); //DEBUG
                 i2c_readDataBlock(BMP180_MODULE_ADDRESS, BMP180_CALIBRATION_REG, g_BMP180_CalibrationCoefficients, 22);
                 status = SEND_COEFFICIENTS;
                 break;
             
             case SEND_COEFFICIENTS:
-                //retVal = xbeeSend(powerCounter,&BMP180_sts, XBEE_SEND_COEFF_CMD);
-               status = IDLE;
+                retVal = xbeeSend(powerCounter,&BMP180_sts, XBEE_SEND_COEFF_CMD);
+                if ( (chrRetVal = xbeeRecv()) != 0)
+                    status = ERROR;
+                IO_RA4_SetLow(); //DEBUG
+                status = IDLE;
                 
             case IDLE:
                 if (thickCtr == 500) {
@@ -179,21 +185,18 @@ void main(void) {
                 break;
                 
             case XBEE_SEND:
-                        IO_RA4_SetHigh(); //DEBUG
+                IO_RA4_SetHigh(); //DEBUG
+
                 retVal = xbeeSend(powerCounter,&BMP180_sts, XBEE_SEND_DATA_CMD);
                 i=0;
                 status = XBEE_RECV;
                 break;
                 
             case XBEE_RECV: //TODO: add timeout
-                while (i != TELEGRAM_89_LENGTH)
-                    if (EUSART_is_rx_ready())
-                        xbee_89_Telegram[i++] = EUSART_Read();
-
-                IO_RA4_SetLow(); //DEBUG
-                
-                if (xbee_89_Telegram[5] == 0x00) //Success
-                    powerCounter = 0;
+                if ( (chrRetVal=xbeeRecv()) == 0) {
+                    powerCounter = 0; //Reset counter only if communication ok
+                    IO_RA4_SetLow(); //DEBUG
+                    }
                 
                 status = IDLE;
                 break;
@@ -289,7 +292,7 @@ void BMP180(struct BMP180_cmd_typ *BMP180_cmd, struct BMP180_sts_typ *BMP180_sts
 
 int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts, uint8_t inMessageType) {
 
-    uint8_t xbeeSendMessage[31], xbeeSendSize;
+    uint8_t xbeeSendMessage[XBEE_SEND_COEFF_SIZE], xbeeSendSize;
     int tempResult, i;
 
     xbeeSendMessage[0] = 0x7E; //Start delimiter
@@ -317,30 +320,31 @@ int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts, uint8_t inMessage
         
         case XBEE_SEND_COEFF_CMD:
             xbeeSendSize = XBEE_SEND_COEFF_SIZE;
-            xbeeSendMessage[2] = 0x1B; //LSB length. Fixed
+            xbeeSendMessage[2] = 0x1C; //LSB length. Fixed
             xbeeSendMessage[8] = 0x0B; //First data byte. Message type
-            xbeeSendMessage[9] = 0x00;
-            xbeeSendMessage[10] = 0; 
-            xbeeSendMessage[11] = 0;
-            xbeeSendMessage[12] = 0;
-            xbeeSendMessage[13] = 0;
-            xbeeSendMessage[14] = 0;
-            xbeeSendMessage[15] = 0;
-            xbeeSendMessage[16] = 0;
-            xbeeSendMessage[17] = 0;
-            xbeeSendMessage[18] = 0;
-            xbeeSendMessage[19] = 0;
-            xbeeSendMessage[20] = 0;
-            xbeeSendMessage[21] = 0;
-            xbeeSendMessage[22] = 0;
-            xbeeSendMessage[23] = 0;
-            xbeeSendMessage[24] = 0;
-            xbeeSendMessage[25] = 0;
-            xbeeSendMessage[26] = 0;
-            xbeeSendMessage[27] = 0;
-            xbeeSendMessage[28] = 0;
-            xbeeSendMessage[29] = 0;
-            xbeeSendMessage[30] = 0;
+            xbeeSendMessage[9] = g_BMP180_CalibrationCoefficients[0];
+            xbeeSendMessage[10] = g_BMP180_CalibrationCoefficients[1]; 
+            xbeeSendMessage[11] = g_BMP180_CalibrationCoefficients[2];
+            xbeeSendMessage[12] = g_BMP180_CalibrationCoefficients[3];
+            xbeeSendMessage[13] = g_BMP180_CalibrationCoefficients[4];
+            xbeeSendMessage[14] = g_BMP180_CalibrationCoefficients[5];
+            xbeeSendMessage[15] = g_BMP180_CalibrationCoefficients[6];
+            xbeeSendMessage[16] = g_BMP180_CalibrationCoefficients[7];
+            xbeeSendMessage[17] = g_BMP180_CalibrationCoefficients[7];
+            xbeeSendMessage[18] = g_BMP180_CalibrationCoefficients[8];
+            xbeeSendMessage[19] = g_BMP180_CalibrationCoefficients[9];
+            xbeeSendMessage[20] = g_BMP180_CalibrationCoefficients[10];
+            xbeeSendMessage[21] = g_BMP180_CalibrationCoefficients[11];
+            xbeeSendMessage[22] = g_BMP180_CalibrationCoefficients[12];
+            xbeeSendMessage[23] = g_BMP180_CalibrationCoefficients[13];
+            xbeeSendMessage[24] = g_BMP180_CalibrationCoefficients[14];
+            xbeeSendMessage[25] = g_BMP180_CalibrationCoefficients[15];
+            xbeeSendMessage[26] = g_BMP180_CalibrationCoefficients[16];
+            xbeeSendMessage[27] = g_BMP180_CalibrationCoefficients[17];
+            xbeeSendMessage[28] = g_BMP180_CalibrationCoefficients[18];
+            xbeeSendMessage[29] = g_BMP180_CalibrationCoefficients[19];
+            xbeeSendMessage[30] = g_BMP180_CalibrationCoefficients[20];
+            xbeeSendMessage[31] = g_BMP180_CalibrationCoefficients[21];
             break;
     }
     
@@ -358,6 +362,20 @@ int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts, uint8_t inMessage
         }
 
     return 0;
+}
+
+char xbeeRecv() {
+    int i=0;
+    uint8_t xbee_89_Telegram[TELEGRAM_89_LENGTH];
+
+    while (i != TELEGRAM_89_LENGTH)
+        if (EUSART_is_rx_ready())
+            xbee_89_Telegram[i++] = EUSART_Read();
+                
+    if (xbee_89_Telegram[5] == 0x00) //Success
+        return 0;
+    else
+        return -1;
 }
 
 void timer(struct timer_typ *inTimer) {
