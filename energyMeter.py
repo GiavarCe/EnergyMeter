@@ -207,6 +207,7 @@ while True:
 		
 		hourPowerCounter = 0
 		hourTemperatureCounter = 0
+		hourPressureCounter = 0
 		loopCtr = 0
 		
 	pr_minuti = (minuti == 0)
