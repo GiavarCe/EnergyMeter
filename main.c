@@ -260,7 +260,7 @@ void BMP180(struct BMP180_cmd_typ *BMP180_cmd, struct BMP180_sts_typ *BMP180_sts
             break;
 
         case BMP180_READ_P_STS:
-            i2c_write1ByteRegister(BMP180_MODULE_ADDRESS, BMP180_CTRL_MEAS_REG, 0xF4);
+            i2c_write1ByteRegister(BMP180_MODULE_ADDRESS, BMP180_CTRL_MEAS_REG, 0xB4); //oss=2
             timer1.delayTime = 4; //40ms max
             timer1.cmd = TIMER_RUN_CMD;
             BMP180_sts->status = BMP180_READ_P_WAIT;
@@ -330,21 +330,20 @@ int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts, uint8_t inMessage
             xbeeSendMessage[14] = g_BMP180_CalibrationCoefficients[5];
             xbeeSendMessage[15] = g_BMP180_CalibrationCoefficients[6];
             xbeeSendMessage[16] = g_BMP180_CalibrationCoefficients[7];
-            xbeeSendMessage[17] = g_BMP180_CalibrationCoefficients[7];
-            xbeeSendMessage[18] = g_BMP180_CalibrationCoefficients[8];
-            xbeeSendMessage[19] = g_BMP180_CalibrationCoefficients[9];
-            xbeeSendMessage[20] = g_BMP180_CalibrationCoefficients[10];
-            xbeeSendMessage[21] = g_BMP180_CalibrationCoefficients[11];
-            xbeeSendMessage[22] = g_BMP180_CalibrationCoefficients[12];
-            xbeeSendMessage[23] = g_BMP180_CalibrationCoefficients[13];
-            xbeeSendMessage[24] = g_BMP180_CalibrationCoefficients[14];
-            xbeeSendMessage[25] = g_BMP180_CalibrationCoefficients[15];
-            xbeeSendMessage[26] = g_BMP180_CalibrationCoefficients[16];
-            xbeeSendMessage[27] = g_BMP180_CalibrationCoefficients[17];
-            xbeeSendMessage[28] = g_BMP180_CalibrationCoefficients[18];
-            xbeeSendMessage[29] = g_BMP180_CalibrationCoefficients[19];
-            xbeeSendMessage[30] = g_BMP180_CalibrationCoefficients[20];
-            xbeeSendMessage[31] = g_BMP180_CalibrationCoefficients[21];
+            xbeeSendMessage[17] = g_BMP180_CalibrationCoefficients[8];
+            xbeeSendMessage[18] = g_BMP180_CalibrationCoefficients[9];
+            xbeeSendMessage[19] = g_BMP180_CalibrationCoefficients[10];
+            xbeeSendMessage[20] = g_BMP180_CalibrationCoefficients[11];
+            xbeeSendMessage[21] = g_BMP180_CalibrationCoefficients[12];
+            xbeeSendMessage[22] = g_BMP180_CalibrationCoefficients[13];
+            xbeeSendMessage[23] = g_BMP180_CalibrationCoefficients[14];
+            xbeeSendMessage[24] = g_BMP180_CalibrationCoefficients[15];
+            xbeeSendMessage[25] = g_BMP180_CalibrationCoefficients[16];
+            xbeeSendMessage[26] = g_BMP180_CalibrationCoefficients[17];
+            xbeeSendMessage[27] = g_BMP180_CalibrationCoefficients[18];
+            xbeeSendMessage[28] = g_BMP180_CalibrationCoefficients[19];
+            xbeeSendMessage[29] = g_BMP180_CalibrationCoefficients[20];
+            xbeeSendMessage[30] = g_BMP180_CalibrationCoefficients[21];
             break;
     }
     
