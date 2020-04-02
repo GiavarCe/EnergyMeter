@@ -108,10 +108,19 @@ void main(void) {
     SYSTEM_Initialize();
     TMR0_StartTimer();
     INTCONbits.GIE = 1;
+
+    //Watchdog timer - STOP STATE
+    if (!PCON0bits.nRWDT) {
+        WWDT_SoftDisable();        
+        IO_RA4_SetHigh();    
+        while(1);
+    }
     
-    while(1) {
-        g_10ms_os = g_TMR0_tick; //10ms interrupt from TMR0
+    WWDT_SoftEnable();
         
+    while(1) {
+        WWDT_TimerClear();
+        g_10ms_os = g_TMR0_tick; //10ms interrupt from TMR0
         if (g_10ms_os)
             g_TMR0_tick = 0;
         

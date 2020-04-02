@@ -114,6 +114,7 @@ uint8_t EUSART_Read(void)
 {
     while(!PIR3bits.RCIF)
     {
+        CLRWDT();
     }
 
     eusartRxLastError.status = 0;
@@ -133,6 +134,7 @@ void EUSART_Write(uint8_t txData)
 {
     while(0 == PIR3bits.TXIF)
     {
+        CLRWDT();
     }
 
     TX1REG = txData;    // Write the data byte to the USART.
