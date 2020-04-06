@@ -46,8 +46,8 @@
 // TODO Insert C++ class definitions if appropriate
 
 // TODO Insert declarations
-unsigned char g_TMR0_tick;
-int g_BMP180_Temperature; //Temperature from BMP180 (before any conversion)
+unsigned char g_10ms_tick_INT=0;
+
 
 // Comment a function and leverage automatic documentation with slash star star
 /**

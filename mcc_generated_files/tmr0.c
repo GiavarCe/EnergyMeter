@@ -52,6 +52,7 @@
 #include "tmr0.h"
 #include "../Globals.h"
 
+
 /**
   Section: TMR0 APIs
 */
@@ -62,11 +63,11 @@ void TMR0_Initialize(void)
 {
     // Set TMR0 to the options selected in the User Interface
 
-    // T0CS HFINTOSC; T0CKPS 1:256; T0ASYNC synchronised; 
-    T0CON1 = 0x68;
+    // T0CS HFINTOSC; T0CKPS 1:128; T0ASYNC synchronised; 
+    T0CON1 = 0x67;
 
-    // TMR0H 9; 
-    TMR0H = 0x09;
+    // TMR0H 19; 
+    TMR0H = 0x13;
 
     // TMR0L 0; 
     TMR0L = 0x00;
@@ -127,7 +128,9 @@ void TMR0_ISR(void)
         TMR0_InterruptHandler();
     }
     
-    g_TMR0_tick = 1;
+    // add your TMR0 interrupt custom code
+    //Interrupt called each 10.024ms
+    g_10ms_tick_INT = 1;
 }
 
 

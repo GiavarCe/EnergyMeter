@@ -8,6 +8,7 @@
 #define INIT                1
 #define READ_COEFFICIENTS   5 //BMP180 is reading calibration coefficients
 #define SEND_COEFFICIENTS   7 //Send BMP180 coefficients to main
+#define WAIT_COEFF_RESPONSE 9
 #define IDLE                10
 #define READ_TEMPERATURE    20
 #define WAIT_BEFORE_START   30
@@ -45,10 +46,14 @@
 #define TIMER_RUN_CMD          60 //Timer run
 //******************
 
+#define XBEE_ANALYZE        90
+#define XBEE_RECV_DONE      100
+#define XBEE_RECEIVING      120
 #define XBEE_SEND           150
 #define XBEE_RECV           160
 #define XBEE_SEND_COEFF_CMD 170 //Send coefficients command
 #define XBEE_SEND_DATA_CMD  180 //Send data command
+#define XBEE_RECV_ERROR     254
 
 #define ERROR       254
 #define DEBUG       255
@@ -82,13 +87,13 @@ uint8_t g_BMP180_CalibrationCoefficients[22]; //Calibration coefficients
 int xbeeSend(int, struct BMP180_sts_typ *, uint8_t);
 void BMP180(struct BMP180_cmd_typ *, struct BMP180_sts_typ *);
 void timer(struct timer_typ *);
-char xbeeRecv(void);
+char xbeeRecv(char, uint8_t);
 
 void main(void) {
-    unsigned short status=INIT, i;
+    unsigned short status=INIT;
     int retVal, powerCounter, thickCtr;
-    uint8_t BMP180_id;
-    char chrRetVal;
+    uint8_t BMP180_id, RA4_Blink_ctr, telegramLength;
+    char chrRetVal, xbee_req=0, xbeeRecvRetVal;
     
     unsigned char sample, change, slatch=0, RC5_os;
     struct BMP180_cmd_typ BMP180_cmd;
@@ -111,22 +116,28 @@ void main(void) {
 
     //Watchdog timer - STOP STATE
     if (!PCON0bits.nRWDT) {
-        WWDT_SoftDisable();        
-        IO_RA4_SetHigh();    
-        while(1);
+        WWDT_SoftDisable(); //Disable WDT 
+        PCON0bits.nRWDT = 1;
+        IO_RA5_SetHigh();    
+        while(1); //STOP CPU and RA5 always ON
     }
     
-    WWDT_SoftEnable();
+    //WWDT_SoftEnable(); //Enable WDT
         
     while(1) {
         WWDT_TimerClear();
-        g_10ms_os = g_TMR0_tick; //10ms interrupt from TMR0
+        g_10ms_os = g_10ms_tick_INT; //10ms interrupt from TMR0
         if (g_10ms_os)
-            g_TMR0_tick = 0;
+            g_10ms_tick_INT = 0;
         
         if (g_10ms_os)
             thickCtr++;
-
+        
+        if (g_10ms_os) 
+            if (++RA4_Blink_ctr == 25) {
+                RA4_Blink_ctr = 0;
+            }
+        
         switch(status) {
             case INIT:
                 thickCtr = 0;
@@ -142,23 +153,36 @@ void main(void) {
                 break;
             
             case WAIT_BEFORE_START: //Empty wait
-                if (thickCtr > 10) 
+                if (thickCtr > 100) {
                     status = READ_COEFFICIENTS;
+                    thickCtr = 0;
+                }
                      
                 break;
                 
             case READ_COEFFICIENTS: //Calibration coefficients
-                IO_RA4_SetHigh(); //DEBUG
                 i2c_readDataBlock(BMP180_MODULE_ADDRESS, BMP180_CALIBRATION_REG, g_BMP180_CalibrationCoefficients, 22);
                 status = SEND_COEFFICIENTS;
                 break;
             
             case SEND_COEFFICIENTS:
+                IO_RA5_SetHigh();
                 retVal = xbeeSend(powerCounter,&BMP180_sts, XBEE_SEND_COEFF_CMD);
-                if ( (chrRetVal = xbeeRecv()) != 0)
+                telegramLength = TELEGRAM_89_LENGTH;
+                xbee_req = 1;
+                status =WAIT_COEFF_RESPONSE;
+                break;
+            
+            case WAIT_COEFF_RESPONSE:
+                xbee_req = 0;
+                if (xbeeRecvRetVal == XBEE_RECV_ERROR)
                     status = ERROR;
-                IO_RA4_SetLow(); //DEBUG
-                status = IDLE;
+                
+                if (xbeeRecvRetVal == XBEE_RECV_DONE) {
+                    IO_RA5_SetLow();
+                    status = IDLE;
+                    }
+                break;
                 
             case IDLE:
                 if (thickCtr == 500) {
@@ -167,14 +191,12 @@ void main(void) {
                     break;
                 }
                 
-                if (thickCtr >= 1500) { //15s 
+                if (thickCtr >= 2000) { //20s 
                     thickCtr=0;
-                    i=0;
                     status = XBEE_SEND; //MODBUS_SEND
                     }
                 
-                sample = PORTC;
-                sample &= 32; //RC5
+                sample = IO_RC5_GetValue();
                 change = sample ^ slatch;
                 RC5_os = change & sample;
                 slatch = sample;
@@ -194,24 +216,28 @@ void main(void) {
                 break;
                 
             case XBEE_SEND:
-                IO_RA4_SetHigh(); //DEBUG
-
+                IO_RA5_SetHigh(); //DEBUG
                 retVal = xbeeSend(powerCounter,&BMP180_sts, XBEE_SEND_DATA_CMD);
-                i=0;
+
+                telegramLength = TELEGRAM_89_LENGTH;
+                xbee_req = 1;
                 status = XBEE_RECV;
                 break;
                 
-            case XBEE_RECV: //TODO: add timeout
-                if ( (chrRetVal=xbeeRecv()) == 0) {
+            case XBEE_RECV:
+                xbee_req = 0;
+                if (xbeeRecvRetVal == XBEE_RECV_DONE) {
                     powerCounter = 0; //Reset counter only if communication ok
-                    IO_RA4_SetLow(); //DEBUG
+                    IO_RA5_SetLow(); //DEBUG
+                    status = IDLE;
                     }
-                
-                status = IDLE;
+
+                if (xbeeRecvRetVal == XBEE_RECV_ERROR)
+                    status = IDLE;
                 break;
             
             case ERROR:
-                IO_RA5_SetHigh();
+                //IO_RA5_SetHigh();
                 break;
                 
             case DEBUG:
@@ -219,6 +245,7 @@ void main(void) {
                 break;
             } 
         BMP180(&BMP180_cmd, &BMP180_sts);
+        xbeeRecvRetVal=xbeeRecv(xbee_req, telegramLength);
         
         if (BMP180_sts.status == ERROR)
             status = ERROR;
@@ -372,18 +399,44 @@ int xbeeSend(int inPower, struct BMP180_sts_typ *inBMP180_sts, uint8_t inMessage
     return 0;
 }
 
-char xbeeRecv() {
-    int i=0;
-    uint8_t xbee_89_Telegram[TELEGRAM_89_LENGTH];
+char xbeeRecv(char inReq, uint8_t inNrOfBytes) {
+    static uint8_t status=INIT, nrOfBytes, i;
+    static uint8_t xbee_Telegram[TELEGRAM_89_LENGTH];
 
-    while (i != TELEGRAM_89_LENGTH)
-        if (EUSART_is_rx_ready())
-            xbee_89_Telegram[i++] = EUSART_Read();
-                
-    if (xbee_89_Telegram[5] == 0x00) //Success
-        return 0;
-    else
-        return -1;
+    switch(status) {
+        case INIT:
+            status = IDLE; //TODO
+            break;
+            
+        case IDLE: //TODO insert timer reset
+            if (inReq) {
+                i=0;
+                nrOfBytes = inNrOfBytes;  
+                status = XBEE_RECEIVING;
+            }
+            break;
+            
+        case XBEE_RECEIVING: //TODOinsert timer
+            while (i != nrOfBytes)
+                if (EUSART_is_rx_ready())
+                    xbee_Telegram[i++] = EUSART_Read();
+            status = XBEE_ANALYZE;
+            break;
+        
+        case XBEE_ANALYZE:
+            if (xbee_Telegram[5] == 0x00) 
+                status = XBEE_RECV_DONE;
+            else
+                status = XBEE_RECV_ERROR;
+            break;
+            
+        case XBEE_RECV_DONE:
+        case XBEE_RECV_ERROR:
+            status = IDLE;
+            break;
+            
+    }
+    return status;
 }
 
 void timer(struct timer_typ *inTimer) {
