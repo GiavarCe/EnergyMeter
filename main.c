@@ -92,7 +92,7 @@ char xbeeRecv(char, uint8_t);
 void main(void) {
     unsigned short status=INIT;
     int retVal, powerCounter, thickCtr;
-    uint8_t BMP180_id, RA4_Blink_ctr, telegramLength;
+    uint8_t BMP180_id, RD1_Blink_ctr, telegramLength;
     char chrRetVal, xbee_req=0, xbeeRecvRetVal;
     
     unsigned char sample, change, slatch=0, RC5_os;
@@ -134,8 +134,9 @@ void main(void) {
             thickCtr++;
         
         if (g_10ms_os) 
-            if (++RA4_Blink_ctr == 25) {
-                RA4_Blink_ctr = 0;
+            if (++RD1_Blink_ctr == 50) {
+                RD1_Blink_ctr = 0;
+                IO_RA4_Toggle();
             }
         
         switch(status) {
